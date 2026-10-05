@@ -1,3 +1,4 @@
+using System.Collections;
 using UnityEngine;
 using UnityEngine.Pool;
 
@@ -32,5 +33,12 @@ namespace StackDrop.Game
 
         public Block Get() => _pool.Get();
         public void Release(Block b) => _pool.Release(b);
+        public void ReleaseAfter(Block b, float seconds) => StartCoroutine(ReleaseLater(b, seconds));
+
+        IEnumerator ReleaseLater(Block b, float seconds)
+        {
+            yield return new WaitForSeconds(seconds);
+            _pool.Release(b);
+        }
     }
 }

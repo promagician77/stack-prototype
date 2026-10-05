@@ -1,0 +1,5 @@
+{
+  "version": 1,
+  "sim": { "speed0": 110, "speedPerLevel": 3.2, "tolerance": 3.5 },
+  "ads": { "minGamesBeforeFirst": 2, "gamesBetween": 3 }
+}

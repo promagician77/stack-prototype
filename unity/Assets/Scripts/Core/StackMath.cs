@@ -8,43 +8,43 @@ namespace StackDrop.Core
     public struct DropResult
     {
         public readonly DropOutcome Outcome;
-        public readonly float X, Width;           // the block that stays on the tower
-        public readonly float SliceX, SliceWidth; // the overhang that falls off (0 if none)
+        public readonly double X, Width;           // the block that stays on the tower
+        public readonly double SliceX, SliceWidth; // the overhang that falls off (0 if none)
 
-        public DropResult(DropOutcome outcome, float x, float width, float sliceX, float sliceWidth)
+        public DropResult(DropOutcome outcome, double x, double width, double sliceX, double sliceWidth)
         {
             Outcome = outcome; X = x; Width = width; SliceX = sliceX; SliceWidth = sliceWidth;
         }
     }
 
     /// <summary>
-    /// Pure slicing math, no UnityEngine dependency, so it is unit-tested in EditMode
+    /// Pure slicing math in doubles (bit-identical to the JavaScript port), no UnityEngine dependency, so it is unit-tested in EditMode
     /// and shared by any renderer (2D sprites, 3D meshes, UI).
     /// </summary>
     public static class StackMath
     {
-        public static DropResult Resolve(float prevX, float prevWidth, float x, float width, float perfectTolerance)
+        public static DropResult Resolve(double prevX, double prevWidth, double x, double width, double perfectTolerance)
         {
-            if (prevWidth <= 0f || width <= 0f) throw new ArgumentException("Widths must be positive.");
+            if (prevWidth <= 0 || width <= 0) throw new ArgumentException("Widths must be positive.");
 
-            float delta = x - prevX;
+            double delta = x - prevX;
             if (Math.Abs(delta) <= perfectTolerance)
-                return new DropResult(DropOutcome.Perfect, prevX, width, 0f, 0f);
+                return new DropResult(DropOutcome.Perfect, prevX, width, 0, 0);
 
-            float left = Math.Max(prevX, x);
-            float right = Math.Min(prevX + prevWidth, x + width);
-            float overlap = right - left;
-            if (overlap <= 0f)
-                return new DropResult(DropOutcome.Missed, x, 0f, x, width);
+            double left = Math.Max(prevX, x);
+            double right = Math.Min(prevX + prevWidth, x + width);
+            double overlap = right - left;
+            if (overlap <= 0)
+                return new DropResult(DropOutcome.Missed, x, 0, x, width);
 
             // The overhang is on the side the block overshot.
-            float sliceX = delta > 0f ? right : x;
-            float sliceWidth = width - overlap;
+            double sliceX = delta > 0 ? right : x;
+            double sliceWidth = width - overlap;
             return new DropResult(DropOutcome.Trimmed, left, overlap, sliceX, sliceWidth);
         }
 
         /// <summary>After a streak of perfect drops the block grows back a little, capped at the base width.</summary>
-        public static float GrowAfterCombo(float width, int combo, int comboToGrow, float growBy, float maxWidth)
+        public static double GrowAfterCombo(double width, int combo, int comboToGrow, double growBy, double maxWidth)
         {
             if (combo < comboToGrow) return width;
             return Math.Min(maxWidth, width + growBy);

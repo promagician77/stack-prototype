@@ -1,172 +1,234 @@
-import { resolveDrop, growAfterCombo, Outcome } from './core.js';
+import { StackSimulation, Replay } from './sim.js';
 
-const W = 360, H = 640, BH = 28, BASE_W = 210, TOL = 4, COMBO_TO_GROW = 3, GROW_BY = 10;
-const GROUND = H - 110, GRAVITY = 1900;
+const W = 360, H = 640, S = 0.92, COS = Math.cos(Math.PI / 6), SIN = Math.sin(Math.PI / 6);
+const BASE_Y = 452, BH = 20;
 
-// Fixed-size pools: nothing is allocated per drop, so no GC hitches mid-run.
 class Pool {
-  constructor(size, make) { this.items = Array.from({ length: size }, make); }
+  constructor(size) { this.items = Array.from({ length: size }, () => ({ active: false })); }
   get() { const it = this.items.find((i) => !i.active); if (it) it.active = true; return it || null; }
-  get active() { return this.items.filter((i) => i.active).length; }
-  get free() { return this.items.length - this.active; }
+  get active() { let n = 0; for (const i of this.items) if (i.active) n++; return n; }
   each(f) { for (const i of this.items) if (i.active) f(i); }
+  clear() { for (const i of this.items) i.active = false; }
+}
+
+// ---------- sound: synthesized, no audio files to load ----------
+const SCALE = [0, 2, 4, 7, 9, 12, 14, 16, 19, 21, 24, 26, 28, 31];
+export class Sfx {
+  constructor() { this.ctx = null; this.muted = false; }
+  unlock() {
+    if (!this.ctx) { const AC = window.AudioContext || window.webkitAudioContext; if (AC) this.ctx = new AC(); }
+    if (this.ctx && this.ctx.state === 'suspended') this.ctx.resume();
+  }
+  tone(freq, dur, type, gain, slideTo) {
+    if (this.muted || !this.ctx) return;
+    const t = this.ctx.currentTime, o = this.ctx.createOscillator(), g = this.ctx.createGain();
+    o.type = type; o.frequency.setValueAtTime(freq, t);
+    if (slideTo) o.frequency.exponentialRampToValueAtTime(slideTo, t + dur);
+    g.gain.setValueAtTime(gain, t); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    o.connect(g).connect(this.ctx.destination); o.start(t); o.stop(t + dur + 0.02);
+  }
+  perfect(combo) {
+    const f = 523.25 * Math.pow(2, SCALE[Math.min(combo - 1, SCALE.length - 1)] / 12);
+    this.tone(f, 0.28, 'sine', 0.2); this.tone(f * 2, 0.18, 'sine', 0.05);
+  }
+  trim() { this.tone(170, 0.14, 'triangle', 0.22, 90); }
+  miss() { this.tone(320, 0.5, 'sawtooth', 0.06, 70); }
 }
 
 export class Game {
   constructor(canvas, hooks) {
-    this.c = canvas; this.ctx = canvas.getContext('2d'); this.hooks = hooks;
-    this.debris = new Pool(32, () => ({ active: false }));
-    this.particles = new Pool(160, () => ({ active: false }));
-    this.labels = new Pool(8, () => ({ active: false }));
-    this.fps = 60; this.shake = 0; this.cam = 0; this.camTarget = 0;
-    this.resize(); window.addEventListener('resize', () => this.resize());
-    this.reset();
-    this.last = performance.now();
-    requestAnimationFrame((t) => this.loop(t));
+    this.c = canvas; this.g = canvas.getContext('2d'); this.hooks = hooks;
+    this.sfx = new Sfx();
+    this.debris = new Pool(24); this.particles = new Pool(140); this.ripples = new Pool(6); this.labels = new Pool(6);
+    this.frameMs = new Float32Array(120); this.fi = 0; this.fps = 60;
+    this.quality = 'high'; this.slowFrames = 0; this.fastFrames = 0; this.stress = false;
+    this.mode = 'idle'; this.cam = 0; this.camTarget = 0; this.hue = 210; this.acc = 0;
+    this.sim = new StackSimulation(1); this.resize();
+    window.addEventListener('resize', () => this.resize());
+    this.last = performance.now(); requestAnimationFrame((t) => this.loop(t));
   }
 
   resize() {
-    const dpr = Math.min(window.devicePixelRatio || 1, 2);
-    this.c.width = W * dpr; this.c.height = H * dpr;
-    this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    const dpr = this.quality === 'high' ? Math.min(window.devicePixelRatio || 1, 2) : 1;
+    this.c.width = W * dpr; this.c.height = H * dpr; this.g.setTransform(dpr, 0, 0, dpr, 0, 0);
   }
 
-  reset() {
-    this.tower = [{ x: (W - BASE_W) / 2, w: BASE_W, level: 0, hue: 200 }];
-    this.moving = null; this.combo = 0; this.height = 0; this.running = false;
-    this.cam = this.camTarget = 0; this.baseHue = 200 + Math.random() * 120;
-    this.tower[0].hue = this.baseHue;
+  // ---------- runs ----------
+  start(seed, config) {
+    this.seed = seed; this.config = { ...config };
+    this.sim = new StackSimulation(seed, this.config);
+    this.recording = new Replay(seed);
+    this.hue = (seed % 360);           // cosmetic only, derived from the seed, never consumes sim RNG
+    this.reset(); this.mode = 'live';
   }
-
-  start() { this.reset(); this.running = true; this.spawn(BASE_W); }
-  resume() { this.running = true; this.spawn(this.top.w); }
-  get top() { return this.tower[this.tower.length - 1]; }
-  hue(level) { return (this.baseHue + level * 7) % 360; }
-  speed() { return Math.min(430, 150 + this.height * 7); }
-
-  spawn(w) {
-    const level = this.tower.length, fromLeft = level % 2 === 1;
-    this.moving = { x: fromLeft ? -w * 0.7 : W - w * 0.3, w, level, dir: fromLeft ? 1 : -1, hue: this.hue(level) };
-  }
+  reset() { this.debris.clear(); this.particles.clear(); this.ripples.clear(); this.labels.clear(); this.acc = 0; this.cam = this.camTarget = 0; }
 
   drop() {
-    if (!this.running || !this.moving) return;
-    const m = this.moving, t = this.top;
-    const r = resolveDrop(t.x, t.w, m.x, m.w, TOL);
-    if (r.outcome === Outcome.Missed) {
-      this.addDebris(m.x, m.level, m.w, m.hue, m.dir * 120);
-      this.moving = null; this.running = false; this.shake = 14; this.combo = 0;
-      this.hooks.onEvent('drop.missed');
-      setTimeout(() => this.hooks.onFail(this.height), 650);
+    if (this.mode !== 'live' || this.sim.over) return;
+    this.recording.record(this.sim.tick, 'drop');
+    this.applyDrop(this.sim.drop());
+  }
+  continueRun() { this.recording.record(this.sim.tick, 'continue'); this.sim.continue(); this.mode = 'live'; }
+
+  startReplay() {
+    this.liveHash = this.sim.hash(); this.liveHeight = this.sim.height;
+    this.replay = { rec: this.recording, i: 0 };
+    this.sim = new StackSimulation(this.seed, this.config);
+    this.reset(); this.mode = 'replay';
+  }
+
+  applyDrop(info) {
+    const r = info.result;
+    if (r.outcome === 'Missed') {
+      this.addDebris(info.dropped, info.dropped.axis);
+      this.shake = 12; this.sfx.miss();
+      this.hooks.onEvent('drop.missed', `tick ${this.sim.tick}`);
+      if (this.mode === 'live') { this.mode = 'waiting'; setTimeout(() => this.hooks.onFail(this.sim.height), 700); }
       return;
     }
-    this.combo = r.outcome === Outcome.Perfect ? this.combo + 1 : 0;
-    const w = r.outcome === Outcome.Perfect ? growAfterCombo(r.width, this.combo, COMBO_TO_GROW, GROW_BY, BASE_W) : r.width;
-    const x = w > r.width ? Math.max(0, r.x - (w - r.width) / 2) : r.x;
-    this.tower.push({ x, w, level: m.level, hue: m.hue });
-    this.height++;
-    if (r.sliceWidth > 0) { this.addDebris(r.sliceX, m.level, r.sliceWidth, m.hue, (r.sliceX > x ? 1 : -1) * 90); this.shake = 4; }
-    if (r.outcome === Outcome.Perfect) {
-      this.burst(x + w / 2, m.level, m.hue);
-      this.label(this.combo > 1 ? `Perfect ×${this.combo}` : 'Perfect', x + w / 2, m.level);
-      if (navigator.vibrate) navigator.vibrate(12);
+    if (info.slice) { this.addDebris(info.slice, info.axis); this.shake = 3; this.sfx.trim(); }
+    if (r.outcome === 'Perfect') {
+      const p = info.placed;
+      this.addRipple(p); this.sfx.perfect(info.combo);
+      this.addLabel(info.combo > 1 ? `Perfect ×${info.combo}` : 'Perfect', p);
+      if (this.quality === 'high') this.burst(p);
+      if (navigator.vibrate) navigator.vibrate(10);
     }
-    this.hooks.onEvent(`drop.${r.outcome.toLowerCase()}`, r.outcome === Outcome.Perfect ? `combo ${this.combo}` : `cut ${r.sliceWidth.toFixed(0)}px`);
-    this.camTarget = Math.max(0, (this.tower.length - 9) * BH);
-    this.spawn(w);
+    this.camTarget = Math.max(0, this.sim.height * BH * S - 150);
+    this.hooks.onEvent(`drop.${r.outcome.toLowerCase()}`, r.outcome === 'Perfect' ? `combo ${info.combo}` : `cut ${r.sliceWidth.toFixed(1)}`, info);
   }
 
-  addDebris(x, level, w, hue, vx) {
+  // ---------- effects ----------
+  addDebris(b, axis) {
     const d = this.debris.get(); if (!d) return;
-    Object.assign(d, { x, y: GROUND - level * BH, w, hue, vx, vy: -60, rot: 0, vr: (vx > 0 ? 1 : -1) * (1.5 + Math.random() * 2) });
+    const top = this.sim.tower[Math.max(0, b.level - 1)] || b;
+    const out = axis === 'x' ? Math.sign((b.x + b.w / 2) - (top.x + top.w / 2)) : Math.sign((b.z + b.d / 2) - (top.z + top.d / 2));
+    Object.assign(d, { x: b.x, z: b.z, w: b.w, d: b.d, y: b.level * BH, vy: 0, vx: axis === 'x' ? out * 40 : 0, vz: axis === 'z' ? out * 40 : 0, life: 1.6, level: b.level });
   }
-  burst(cx, level, hue) {
-    const cy = GROUND - level * BH + BH / 2;
-    for (let i = 0; i < 18; i++) {
+  addRipple(b) { const r = this.ripples.get(); if (r) Object.assign(r, { b: { ...b }, t: 0 }); }
+  addLabel(text, b) { const l = this.labels.get(); if (l) Object.assign(l, { text, b: { ...b }, t: 0 }); }
+  burst(b) {
+    const [cx, cy] = this.proj(b.x + b.w / 2, (b.level + 1) * BH, b.z + b.d / 2);
+    for (let i = 0; i < 20; i++) {
       const p = this.particles.get(); if (!p) break;
-      const a = (i / 18) * Math.PI * 2, s = 140 + Math.random() * 160;
-      Object.assign(p, { x: cx, y: cy, vx: Math.cos(a) * s, vy: Math.sin(a) * s * 0.6 - 80, life: 0.6, max: 0.6, hue, size: 3 + Math.random() * 3 });
+      const a = Math.random() * Math.PI * 2, s = 60 + Math.random() * 140;
+      Object.assign(p, { x: cx, y: cy - this.cam, vx: Math.cos(a) * s, vy: Math.sin(a) * s * 0.5 - 90, life: 0.7, max: 0.7, size: 1.5 + Math.random() * 2.5 });
     }
   }
-  label(text, cx, level) {
-    const l = this.labels.get(); if (!l) return;
-    Object.assign(l, { text, x: cx, y: GROUND - level * BH - 14, life: 0.9 });
-  }
 
+  // ---------- loop ----------
   loop(now) {
-    const dt = Math.min(0.033, (now - this.last) / 1000); this.last = now;
-    this.fps = this.fps * 0.92 + (1 / Math.max(dt, 0.001)) * 0.08;
+    const ms = now - this.last; this.last = now;
+    const dt = Math.min(0.05, ms / 1000);
+    this.frameMs[this.fi = (this.fi + 1) % this.frameMs.length] = ms;
+    this.fps = this.fps * 0.9 + (1000 / Math.max(ms, 1)) * 0.1;
+    this.adapt(ms);
+
+    if (this.mode === 'live' || this.mode === 'replay') {
+      const tickDt = 1 / this.sim.config.tickRate; this.acc += dt; let n = 0;
+      while (this.acc >= tickDt && n++ < 12) { this.stepOnce(); this.acc -= tickDt; if (this.mode !== 'live' && this.mode !== 'replay') break; }
+    }
     this.update(dt); this.draw();
+    if (this.stress) { const t = performance.now(); while (performance.now() - t < 26) { /* simulate a slow phone */ } }
     requestAnimationFrame((t) => this.loop(t));
   }
 
-  update(dt) {
-    const m = this.moving;
-    if (m && this.running) {
-      m.x += m.dir * this.speed() * dt;
-      if (m.x + m.w > W + m.w * 0.35 && m.dir > 0) m.dir = -1;
-      if (m.x < -m.w * 0.35 && m.dir < 0) m.dir = 1;
+  stepOnce() {
+    if (this.mode === 'replay') {
+      const { rec } = this.replay;
+      while (this.replay.i < rec.inputs.length && rec.inputs[this.replay.i].tick === this.sim.tick) {
+        const inp = rec.inputs[this.replay.i++];
+        if (inp.kind === 'drop') this.applyDrop(this.sim.drop()); else this.sim.continue();
+      }
+      if (this.replay.i >= rec.inputs.length) {
+        this.mode = 'done';
+        const replayHash = this.sim.hash();
+        setTimeout(() => this.hooks.onReplayDone({ liveHash: this.liveHash, replayHash, height: this.sim.height }), 900);
+        return;
+      }
     }
-    this.cam += (this.camTarget - this.cam) * Math.min(1, dt * 6);
-    this.shake = Math.max(0, this.shake - dt * 40);
-    this.debris.each((d) => {
-      d.vy += GRAVITY * dt; d.x += d.vx * dt; d.y += d.vy * dt; d.rot += d.vr * dt;
-      if (d.y - this.cam > H + 80) d.active = false;
-    });
-    this.particles.each((p) => {
-      p.life -= dt; p.vy += 600 * dt; p.x += p.vx * dt; p.y += p.vy * dt;
-      if (p.life <= 0) p.active = false;
-    });
-    this.labels.each((l) => { l.life -= dt; l.y -= 40 * dt; if (l.life <= 0) l.active = false; });
+    this.sim.step();
   }
 
-  block(x, y, w, hue, alpha = 1) {
-    const g = this.ctx;
-    g.globalAlpha = alpha;
-    g.fillStyle = `hsl(${hue} 70% 58%)`; g.fillRect(x, y, w, BH);
-    g.fillStyle = `hsl(${hue} 80% 72%)`; g.fillRect(x, y, w, 5);
-    g.fillStyle = `hsl(${hue} 60% 44%)`; g.fillRect(x, y + BH - 4, w, 4);
-    g.globalAlpha = 1;
+  adapt(ms) {
+    // Adaptive quality: sustained slow frames drop resolution and particles, recovery is slower on purpose.
+    if (ms > 24) { this.slowFrames++; this.fastFrames = 0; } else if (ms < 18) { this.fastFrames++; this.slowFrames = Math.max(0, this.slowFrames - 1); }
+    if (this.quality === 'high' && this.slowFrames > 45) { this.quality = 'low'; this.resize(); this.hooks.onEvent('quality.low', 'sustained frames over 24 ms'); }
+    if (this.quality === 'low' && this.fastFrames > 240) { this.quality = 'high'; this.slowFrames = 0; this.resize(); this.hooks.onEvent('quality.high', 'recovered'); }
+  }
+
+  update(dt) {
+    this.cam += (this.camTarget - this.cam) * Math.min(1, dt * 5);
+    this.shake = Math.max(0, (this.shake || 0) - dt * 40);
+    this.debris.each((d) => { d.vy -= 900 * dt; d.y += d.vy * dt; d.x += d.vx * dt; d.z += d.vz * dt; d.life -= dt; if (d.life <= 0) d.active = false; });
+    this.particles.each((p) => { p.life -= dt; p.vy += 260 * dt; p.x += p.vx * dt; p.y += p.vy * dt; if (p.life <= 0) p.active = false; });
+    this.ripples.each((r) => { r.t += dt; if (r.t > 0.55) r.active = false; });
+    this.labels.each((l) => { l.t += dt; if (l.t > 0.9) l.active = false; });
+  }
+
+  // ---------- drawing ----------
+  proj(x, y, z) { return [W / 2 + (x - z) * COS * S, BASE_Y + (x + z) * SIN * S - y * S + this.cam]; }
+  hueAt(level) { return (this.hue + level * 5) % 360; }
+
+  poly(pts, fill, stroke) {
+    const g = this.g; g.beginPath(); g.moveTo(pts[0][0], pts[0][1]);
+    for (let i = 1; i < pts.length; i++) g.lineTo(pts[i][0], pts[i][1]);
+    g.closePath(); if (fill) { g.fillStyle = fill; g.fill(); } if (stroke) { g.strokeStyle = stroke; g.stroke(); }
+  }
+  box(b, y0, hue, alpha = 1) {
+    const x0 = b.x, x1 = b.x + b.w, z0 = b.z, z1 = b.z + b.d, y1 = y0 + BH, p = (x, y, z) => this.proj(x, y, z);
+    this.g.globalAlpha = alpha;
+    this.poly([p(x1, y1, z0), p(x1, y1, z1), p(x1, y0, z1), p(x1, y0, z0)], `hsl(${hue} 52% 48%)`);
+    this.poly([p(x0, y1, z1), p(x1, y1, z1), p(x1, y0, z1), p(x0, y0, z1)], `hsl(${hue} 52% 38%)`);
+    this.poly([p(x0, y1, z0), p(x1, y1, z0), p(x1, y1, z1), p(x0, y1, z1)], `hsl(${hue} 62% 64%)`);
+    this.g.globalAlpha = 1;
   }
 
   draw() {
-    const g = this.ctx, h = this.hue(this.tower.length);
+    const g = this.g, top = this.sim.tower.length, h = this.hueAt(top);
     const bg = g.createLinearGradient(0, 0, 0, H);
-    bg.addColorStop(0, `hsl(${(h + 30) % 360} 55% 22%)`); bg.addColorStop(1, `hsl(${h} 45% 12%)`);
+    bg.addColorStop(0, `hsl(${(h + 40) % 360} 42% 74%)`); bg.addColorStop(1, `hsl(${(h + 10) % 360} 36% 52%)`);
     g.fillStyle = bg; g.fillRect(0, 0, W, H);
 
     g.save();
-    const sx = (Math.random() - 0.5) * this.shake, sy = (Math.random() - 0.5) * this.shake;
-    g.translate(sx, sy + this.cam);
+    if (this.shake) g.translate((Math.random() - 0.5) * this.shake, (Math.random() - 0.5) * this.shake);
 
-    g.fillStyle = 'rgba(255,255,255,0.06)'; g.fillRect(0, GROUND + BH, W, H);
-    for (const b of this.tower) {
-      const y = GROUND - b.level * BH;
-      if (y + this.cam > H + BH || y + this.cam < -BH) continue;
-      this.block(b.x, y, b.w, b.hue);
+    const tower = this.sim.tower;
+    const first = Math.max(0, Math.floor((this.cam - 260) / (BH * S)));
+    // pedestal under the base so the tower stands on something
+    const b0 = tower[0];
+    for (let k = 6; k >= 1; k--) this.box({ x: b0.x, z: b0.z, w: b0.w, d: b0.d }, -k * BH, this.hueAt(0), 0.5 - k * 0.06);
+    for (let i = first; i < tower.length; i++) this.box(tower[i], tower[i].level * BH, this.hueAt(tower[i].level));
+    this.debris.each((d) => this.box(d, d.y, this.hueAt(d.level), Math.max(0, Math.min(1, d.life))));
+    if (this.sim.moving && (this.mode === 'live' || this.mode === 'replay')) {
+      const m = this.sim.moving; this.box(m, m.level * BH, this.hueAt(m.level));
     }
-    const m = this.moving;
-    if (m) this.block(m.x, GROUND - m.level * BH, m.w, m.hue);
-
-    this.debris.each((d) => {
-      g.save(); g.translate(d.x + d.w / 2, d.y + BH / 2); g.rotate(d.rot);
-      this.block(-d.w / 2, -BH / 2, d.w, d.hue, 0.9); g.restore();
+    this.ripples.each((r) => {
+      const k = 1 + r.t * 0.7, b = r.b, cx = b.x + b.w / 2, cz = b.z + b.d / 2, hw = b.w / 2 * k, hd = b.d / 2 * k, y = (b.level + 1) * BH;
+      g.lineWidth = 2.5; g.globalAlpha = Math.max(0, 1 - r.t / 0.55);
+      this.poly([this.proj(cx - hw, y, cz - hd), this.proj(cx + hw, y, cz - hd), this.proj(cx + hw, y, cz + hd), this.proj(cx - hw, y, cz + hd)], null, '#fff');
+      g.globalAlpha = 1;
     });
     this.particles.each((p) => {
-      g.globalAlpha = Math.max(0, p.life / p.max); g.fillStyle = `hsl(${p.hue} 90% 75%)`;
-      g.beginPath(); g.arc(p.x, p.y, p.size, 0, Math.PI * 2); g.fill();
+      g.globalAlpha = Math.max(0, p.life / p.max); g.fillStyle = '#fff';
+      g.beginPath(); g.arc(p.x, p.y + this.cam, p.size, 0, Math.PI * 2); g.fill();
     });
     g.globalAlpha = 1;
-    g.font = '700 18px Rubik, system-ui, sans-serif'; g.textAlign = 'center';
+    g.font = '700 17px Rubik, system-ui, sans-serif'; g.textAlign = 'center';
     this.labels.each((l) => {
-      g.globalAlpha = Math.min(1, l.life * 2); g.fillStyle = '#fff'; g.fillText(l.text, l.x, l.y);
+      const [x, y] = this.proj(l.b.x + l.b.w / 2, (l.b.level + 1) * BH, l.b.z + l.b.d / 2);
+      g.globalAlpha = Math.max(0, 1 - l.t / 0.9); g.fillStyle = '#fff'; g.fillText(l.text, x, y - 26 - l.t * 30);
     });
     g.globalAlpha = 1;
     g.restore();
 
-    if (this.running || this.height > 0) {
-      g.font = '700 64px Rubik, system-ui, sans-serif'; g.textAlign = 'center';
-      g.fillStyle = 'rgba(255,255,255,0.92)'; g.fillText(String(this.height), W / 2, 96);
+    if (this.mode !== 'idle') {
+      g.textAlign = 'center'; g.fillStyle = 'rgba(255,255,255,0.95)';
+      g.font = '700 68px Rubik, system-ui, sans-serif'; g.fillText(String(this.sim.height), W / 2, 104);
+    }
+    if (this.mode === 'replay' || this.mode === 'done') {
+      g.fillStyle = 'rgba(20,24,32,0.55)'; g.fillRect(W / 2 - 52, 122, 104, 26);
+      g.fillStyle = '#fff'; g.font = '600 13px Rubik, system-ui, sans-serif'; g.fillText('REPLAY', W / 2, 140);
     }
   }
 }

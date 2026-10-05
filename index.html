@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="color-scheme" content="light">
 <meta name="robots" content="noindex, nofollow">
-<title>PROTOTYPE - Stack Drop, by Sebastian</title>
+<title>PROTOTYPE - Stack Drop, by Luis</title>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'><rect width='64' height='64' rx='14' fill='%23E8505B'/><rect x='14' y='40' width='36' height='10' rx='2' fill='white'/><rect x='18' y='27' width='30' height='10' rx='2' fill='white' opacity='.85'/><rect x='22' y='14' width='22' height='10' rx='2' fill='white' opacity='.7'/></svg>">
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Rubik:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
@@ -13,10 +13,10 @@
 </head>
 <body>
 <header class="top">
-  <div class="brand"><span class="mark">PROTOTYPE</span><div><h1>Stack Drop</h1><p>Built for Devflow by Sebastian. Tap the game to play.</p></div></div>
+  <div class="brand"><span class="mark">PROTOTYPE</span><div><h1>Stack Drop</h1><p>Built for Devflow by Luis. Tap the game to play, sound on.</p></div></div>
   <nav class="tabs" role="tablist">
     <button role="tab" aria-selected="true" data-tab="play">Play</button>
-    <button role="tab" aria-selected="false" data-tab="built">How it's built</button>
+    <button role="tab" aria-selected="false" data-tab="built">Engineering</button>
     <button role="tab" aria-selected="false" data-tab="code">Unity C#</button>
     <button role="tab" aria-selected="false" data-tab="deliver">Milestones</button>
   </nav>
@@ -29,13 +29,14 @@
     <div class="phone">
       <div class="screen">
         <canvas id="cv" aria-label="Stack Drop game. Tap or press Space to drop the block."></canvas>
+        <button class="mute" id="mute" aria-pressed="false" aria-label="Mute sound">🔊</button>
 
         <div class="ov" id="menu" hidden>
           <div class="card">
             <h2>Stack Drop</h2>
-            <p>Tap to drop the block. Land it dead-on for a perfect, three perfects in a row grows it back.</p>
+            <p>Tap to drop the block. Land it dead-on for a perfect. Three in a row grows it back.</p>
             <button class="btn big" id="startbtn">Play</button>
-            <small>Best: <b id="menubest">0</b></small>
+            <small>Best: <b id="menubest">0</b> · sound on</small>
           </div>
         </div>
 
@@ -63,6 +64,8 @@
             <h2>Tower: <span id="goscore">0</span></h2>
             <p class="best">Best <b id="gobest">0</b></p>
             <button class="btn big" id="againbtn">Play again</button>
+            <button class="btn ghost" id="replaybtn">Watch replay</button>
+            <p class="verify" id="verify" hidden></p>
             <div id="buyrow"><button class="btn ghost" id="buyopen">Remove ads, $2.99</button></div>
             <p id="ownedrow" class="owned" hidden>Ads removed. Thanks for your support.</p>
             <button class="link" id="restore">Restore purchases</button>
@@ -85,21 +88,72 @@
     </div>
 
     <aside class="dev" aria-label="Developer panel">
-      <h3>Live developer panel</h3>
-      <dl class="stats">
-        <div><dt>FPS</dt><dd id="d-fps">-</dd></div>
-        <div><dt>State</dt><dd id="d-state">-</dd></div>
-        <div><dt>Height</dt><dd id="d-height">0</dd></div>
-        <div><dt>Combo</dt><dd id="d-combo">0</dd></div>
-        <div><dt>Slice pool in use</dt><dd id="d-debris">-</dd></div>
-        <div><dt>Particle pool in use</dt><dd id="d-part">-</dd></div>
-        <div><dt>Games played</dt><dd id="d-games">0</dd></div>
-        <div><dt>Games since last ad</dt><dd id="d-since">-</dd></div>
-        <div><dt>Remove ads</dt><dd id="d-noads">-</dd></div>
-      </dl>
-      <p class="hint">Interstitials: never in the first game, never after a rewarded ad, then at most once every 4 games. Buttons on ad and store screens ignore taps for 0.7s, so a fast-tapping player never hits an ad by accident. Buy remove-ads, then try <button class="inline" id="reinstall">simulate a reinstall</button> and restore.</p>
-      <h3>Event log</h3>
-      <ol class="ev" id="ev"></ol>
+      <div class="devtabs" role="tablist" aria-label="Developer panel sections">
+        <button role="tab" aria-selected="true" data-pane="p-perf">Performance</button>
+        <button role="tab" aria-selected="false" data-pane="p-sim">Simulation</button>
+        <button role="tab" aria-selected="false" data-pane="p-tune">Tuning</button>
+        <button role="tab" aria-selected="false" data-pane="p-ana">Analytics</button>
+        <button role="tab" aria-selected="false" data-pane="p-ev">Events</button>
+      </div>
+
+      <div class="devpane" id="p-perf">
+        <dl class="stats">
+          <div><dt>FPS</dt><dd id="d-fps">-</dd></div>
+          <div><dt>Avg frame</dt><dd id="d-ms">-</dd></div>
+          <div><dt>Quality</dt><dd id="d-q">-</dd></div>
+          <div><dt>Slice pool</dt><dd id="d-debris">-</dd></div>
+          <div><dt>Particle pool</dt><dd id="d-part">-</dd></div>
+        </dl>
+        <div class="graphhead"><b>Frame time, last 120 frames</b><span>lines at 16.7 and 33 ms</span></div>
+        <canvas id="fgraph" width="600" height="110" aria-label="Frame time graph"></canvas>
+        <label class="toggle"><input type="checkbox" id="stress"> Simulate a slow phone (+26 ms per frame) and watch quality drop by itself</label>
+      </div>
+
+      <div class="devpane" id="p-sim" hidden>
+        <dl class="stats">
+          <div><dt>State</dt><dd id="d-state">-</dd></div>
+          <div><dt>Seed</dt><dd id="d-seed">-</dd></div>
+          <div><dt>Tick</dt><dd id="d-tick">-</dd></div>
+          <div><dt>Height</dt><dd id="d-height">0</dd></div>
+          <div><dt>Combo</dt><dd id="d-combo">0</dd></div>
+          <div><dt>Inputs recorded</dt><dd id="d-inputs">0</dd></div>
+          <div class="wide"><dt>Tower hash</dt><dd id="d-hash">-</dd></div>
+        </dl>
+        <label class="toggle"><input type="checkbox" id="bot"> Let the bot play (same rules, aims with human-like error)</label>
+        <p class="hint">The rules run as a fixed 120 Hz simulation, separate from rendering. Each run stores only its seed and the tick of every tap, so "Watch replay" rebuilds the run and checks the hash. The C# version produces the same hash for the same inputs.</p>
+      </div>
+
+      <div class="devpane" id="p-tune" hidden>
+        <p class="hint">Like Remote Config: values load from <code>config.json</code> and can change without a new build. Game rules apply from the next run, so a run's replay stays valid.</p>
+        <label class="slider"><span>Start speed <b id="t-speedv"></b></span><input type="range" id="t-speed" min="60" max="220" step="5"></label>
+        <label class="slider"><span>Perfect window <b id="t-tolv"></b></span><input type="range" id="t-tol" min="1" max="10" step="0.5"></label>
+        <label class="slider"><span>Clean games between interstitials <b id="t-gapv"></b></span><input type="range" id="t-gap" min="1" max="8" step="1"></label>
+        <p class="cfg">Config <span id="cfgsrc"></span></p>
+        <div class="balance">
+          <div class="bhead"><b>Balance check</b><button class="btn small" id="balance">Run 400 bot games</button></div>
+          <p class="hint">Bots play the real rules headless at the settings above, so you see what a change does before any player does.</p>
+          <div class="tw"><table class="btable" id="btable"><tr><th></th><th>Avg height</th><th>Median</th><th>Top 10%</th><th>Perfects</th></tr><tr><td colspan="5" class="muted">Not run yet</td></tr></table></div>
+          <small id="btime"></small>
+        </div>
+      </div>
+
+      <div class="devpane" id="p-ana" hidden>
+        <dl class="stats">
+          <div><dt>Runs</dt><dd id="a-runs">0</dd></div>
+          <div><dt>Avg height</dt><dd id="a-avg">-</dd></div>
+          <div><dt>Perfect rate</dt><dd id="a-perfect">-</dd></div>
+          <div><dt>Continues taken</dt><dd id="a-cont">-</dd></div>
+          <div><dt>Interstitials</dt><dd id="a-int">0</dd></div>
+          <div><dt>Purchases</dt><dd id="a-buy">0</dd></div>
+          <div><dt>Games since ad</dt><dd id="a-since">-</dd></div>
+          <div><dt>Remove ads</dt><dd id="a-noads">-</dd></div>
+        </dl>
+        <p class="hint">Interstitials never show in the first game or right after a rewarded ad. Buttons on ad and store screens ignore taps for 0.7 s, so a fast-tapping player never hits an ad by accident. Buy remove-ads, then <button class="inline" id="reinstall">simulate a reinstall</button> and restore.</p>
+      </div>
+
+      <div class="devpane" id="p-ev" hidden>
+        <ol class="ev" id="ev"></ol>
+      </div>
     </aside>
   </div>
 </section>
@@ -107,27 +161,45 @@
 <!-- BUILT -->
 <section id="built" class="panel" hidden>
   <div class="arch">
-    <svg viewBox="0 0 980 420" role="img" aria-label="Architecture: gameplay talks to service interfaces; ad networks and stores plug in behind them">
+    <svg viewBox="0 0 1000 400" role="img" aria-label="Architecture: a headless deterministic simulation; runner, view, audio and monetization sit around it">
       <g font-family="Rubik, sans-serif" font-size="14">
-        <rect x="20" y="30" width="200" height="64" rx="10" fill="#FFF0F1" stroke="#E8505B"/><text x="120" y="58" text-anchor="middle" font-weight="600" fill="#1E2430">StackController</text><text x="120" y="78" text-anchor="middle" fill="#5A6170" font-size="12">input, movement, events</text>
-        <rect x="20" y="130" width="200" height="64" rx="10" fill="#F1F7EE" stroke="#4E9A4F"/><text x="120" y="158" text-anchor="middle" font-weight="600" fill="#1E2430">StackMath</text><text x="120" y="178" text-anchor="middle" fill="#5A6170" font-size="12">pure C#, 7 tests</text>
-        <rect x="20" y="230" width="200" height="64" rx="10" fill="#F4F5F7" stroke="#9AA1AD"/><text x="120" y="258" text-anchor="middle" font-weight="600" fill="#1E2430">BlockPool</text><text x="120" y="278" text-anchor="middle" fill="#5A6170" font-size="12">no allocations per drop</text>
-        <rect x="390" y="130" width="200" height="64" rx="10" fill="#F1F7EE" stroke="#4E9A4F"/><text x="490" y="158" text-anchor="middle" font-weight="600" fill="#1E2430">GameStateMachine</text><text x="490" y="178" text-anchor="middle" fill="#5A6170" font-size="12">illegal jumps throw, 2 tests</text>
-        <rect x="390" y="270" width="200" height="64" rx="10" fill="#FFF0F1" stroke="#E8505B"/><text x="490" y="298" text-anchor="middle" font-weight="600" fill="#1E2430">MonetizationController</text><text x="490" y="318" text-anchor="middle" fill="#5A6170" font-size="12">the only file that knows ads</text>
-        <rect x="390" y="360" width="200" height="50" rx="10" fill="#F1F7EE" stroke="#4E9A4F"/><text x="490" y="390" text-anchor="middle" font-weight="600" fill="#1E2430">AdPolicy · 4 tests</text>
-        <rect x="740" y="210" width="220" height="64" rx="10" fill="#fff" stroke="#1E2430" stroke-dasharray="5 4"/><text x="850" y="238" text-anchor="middle" font-weight="600" fill="#1E2430">IAdsService</text><text x="850" y="258" text-anchor="middle" fill="#5A6170" font-size="12">Mock · LevelPlay · AdMob · MAX</text>
-        <rect x="740" y="310" width="220" height="64" rx="10" fill="#fff" stroke="#1E2430" stroke-dasharray="5 4"/><text x="850" y="338" text-anchor="middle" font-weight="600" fill="#1E2430">IPurchaseService</text><text x="850" y="358" text-anchor="middle" fill="#5A6170" font-size="12">Mock · Unity IAP · 2 tests</text>
+        <rect x="380" y="150" width="240" height="80" rx="12" fill="#F1F7EE" stroke="#4E9A4F" stroke-width="1.5"/>
+        <text x="500" y="182" text-anchor="middle" font-weight="700" fill="#1E2430">StackSimulation</text>
+        <text x="500" y="202" text-anchor="middle" fill="#5A6170" font-size="12">headless rules · 120 Hz · seeded</text>
+        <text x="500" y="218" text-anchor="middle" fill="#5A6170" font-size="12">6 tests · C# ≡ JS hash</text>
+
+        <rect x="40" y="40" width="210" height="64" rx="10" fill="#FFF0F1" stroke="#E8505B"/><text x="145" y="68" text-anchor="middle" font-weight="600" fill="#1E2430">SimulationRunner</text><text x="145" y="88" text-anchor="middle" fill="#5A6170" font-size="12">fixed step, records input</text>
+        <rect x="40" y="160" width="210" height="64" rx="10" fill="#F4F5F7" stroke="#9AA1AD"/><text x="145" y="188" text-anchor="middle" font-weight="600" fill="#1E2430">StackView</text><text x="145" y="208" text-anchor="middle" fill="#5A6170" font-size="12">reads only, pooled cubes</text>
+        <rect x="40" y="280" width="210" height="64" rx="10" fill="#F4F5F7" stroke="#9AA1AD"/><text x="145" y="308" text-anchor="middle" font-weight="600" fill="#1E2430">Audio · FX · Haptics</text><text x="145" y="328" text-anchor="middle" fill="#5A6170" font-size="12">react to drop events</text>
+
+        <rect x="380" y="30" width="240" height="64" rx="10" fill="#F1F7EE" stroke="#4E9A4F"/><text x="500" y="58" text-anchor="middle" font-weight="600" fill="#1E2430">Replay</text><text x="500" y="78" text-anchor="middle" fill="#5A6170" font-size="12">seed + input ticks → same run</text>
+        <rect x="380" y="290" width="240" height="64" rx="10" fill="#F1F7EE" stroke="#4E9A4F"/><text x="500" y="318" text-anchor="middle" font-weight="600" fill="#1E2430">StackMath · DeterministicRandom</text><text x="500" y="338" text-anchor="middle" fill="#5A6170" font-size="12">pure functions, doubles</text>
+
+        <rect x="750" y="40" width="210" height="64" rx="10" fill="#FFF0F1" stroke="#E8505B"/><text x="855" y="68" text-anchor="middle" font-weight="600" fill="#1E2430">MonetizationController</text><text x="855" y="88" text-anchor="middle" fill="#5A6170" font-size="12">AdPolicy · 4 tests</text>
+        <rect x="750" y="160" width="210" height="64" rx="10" fill="#fff" stroke="#1E2430" stroke-dasharray="5 4"/><text x="855" y="188" text-anchor="middle" font-weight="600" fill="#1E2430">IAdsService</text><text x="855" y="208" text-anchor="middle" fill="#5A6170" font-size="12">LevelPlay · AdMob · MAX</text>
+        <rect x="750" y="280" width="210" height="64" rx="10" fill="#fff" stroke="#1E2430" stroke-dasharray="5 4"/><text x="855" y="308" text-anchor="middle" font-weight="600" fill="#1E2430">IPurchaseService</text><text x="855" y="328" text-anchor="middle" fill="#5A6170" font-size="12">Unity IAP · restore tested</text>
       </g>
       <g stroke="#9AA1AD" stroke-width="1.6" fill="none">
-        <path d="M120 94 V130"/><path d="M120 194 V230"/><path d="M220 62 H300 V162 H390"/>
-        <path d="M490 194 V270"/><path d="M490 334 V360"/><path d="M590 302 H660 V242 H740"/><path d="M590 302 H660 V342 H740"/>
+        <path d="M250 72 H320 V178 H380"/><path d="M380 200 H250"/><path d="M250 312 H320 V215 H380"/>
+        <path d="M500 94 V150"/><path d="M500 230 V290"/>
+        <path d="M855 104 V160"/><path d="M855 104 H930 V280 H960"/>
       </g>
     </svg>
   </div>
-  <div class="points">
-    <div><b>Swap ad networks per client</b><p>Gameplay only talks to interfaces. A client on AdMob instead of LevelPlay gets a new adapter, not edits across the game.</p></div>
-    <div><b>Smooth on cheap Android</b><p>Slices and particles come from fixed pools, so a perfect drop never stutters because of garbage collection.</p></div>
-    <div><b>"Fewer ads, please"</b><p>Interstitial rules live in one tested class. Changing the frequency is one number, verified by the tests.</p></div>
+  <div class="points four">
+    <div><b>Every bug report is reproducible</b><p>A run is a seed plus the tick of each tap. Send that, and I replay the exact game that broke, on any device.</p></div>
+    <div><b>Browser and Unity are the same game</b><p>The same seed and inputs give the same tower hash in C# and JavaScript, checked by tests on both sides.</p></div>
+    <div><b>Smooth on cheap Android</b><p>Fixed-step rules, pooled objects, and quality that drops by itself when frames run long, then recovers.</p></div>
+    <div><b>Tune without a new build</b><p>Speed, perfect window, and ad frequency come from config. A client's "make it easier" is a value, not a release.</p></div>
+  </div>
+  <div class="budget">
+    <h3>Performance budget I hold every client build to</h3>
+    <div class="tw"><table>
+      <tr><th>Frame time</th><td>16.7 ms on a mid-range phone, 33 ms floor on low-end</td></tr>
+      <tr><th>Allocations during play</th><td>None per drop: pooled slices, particles, and cubes</td></tr>
+      <tr><th>Game rules</th><td>Fixed 120 Hz, so speed and difficulty never depend on frame rate</td></tr>
+      <tr><th>Slow-device fallback</th><td>Automatic: lower resolution and effects after sustained slow frames</td></tr>
+    </table></div>
   </div>
 </section>
 
@@ -135,22 +207,27 @@
 <section id="code" class="panel" hidden>
   <div class="codewrap">
     <div class="files" role="list">
-      <button role="listitem" aria-current="true" data-file="unity/Assets/Scripts/Core/StackMath.cs">StackMath.cs<small>slicing math</small></button>
+      <button role="listitem" aria-current="true" data-file="unity/Assets/Scripts/Core/StackSimulation.cs">StackSimulation.cs<small>rules, replay, hash</small></button>
+      <button role="listitem" data-file="unity/Assets/Scripts/Core/DeterministicRandom.cs">DeterministicRandom.cs<small>seeded, cross-language</small></button>
+      <button role="listitem" data-file="unity/Assets/Scripts/Core/StackMath.cs">StackMath.cs<small>slicing math</small></button>
+      <button role="listitem" data-file="unity/Assets/Scripts/Game/SimulationRunner.cs">SimulationRunner.cs<small>fixed timestep</small></button>
+      <button role="listitem" data-file="unity/Assets/Scripts/Game/StackView.cs">StackView.cs<small>read-only renderer</small></button>
       <button role="listitem" data-file="unity/Assets/Scripts/Core/AdPolicy.cs">AdPolicy.cs<small>interstitial rules</small></button>
       <button role="listitem" data-file="unity/Assets/Scripts/Core/Services.cs">Services.cs<small>ads + IAP interfaces</small></button>
-      <button role="listitem" data-file="unity/Assets/Scripts/Core/GameStateMachine.cs">GameStateMachine.cs<small>game flow</small></button>
-      <button role="listitem" data-file="unity/Assets/Scripts/Game/StackController.cs">StackController.cs<small>MonoBehaviour</small></button>
-      <button role="listitem" data-file="unity/Assets/Scripts/Game/BlockPool.cs">BlockPool.cs<small>UnityEngine.Pool</small></button>
       <button role="listitem" data-file="unity/Assets/Scripts/Game/MonetizationController.cs">MonetizationController.cs<small>ads + purchases</small></button>
-      <button role="listitem" data-file="unity/Assets/Tests/EditMode/AdPolicyTests.cs">AdPolicyTests.cs<small>NUnit, EditMode</small></button>
+      <button role="listitem" data-file="unity/Assets/Scripts/Game/BlockPool.cs">BlockPool.cs<small>UnityEngine.Pool</small></button>
+      <button role="listitem" data-file="unity/Assets/Tests/EditMode/SimulationTests.cs">SimulationTests.cs<small>parity + replay</small></button>
       <div class="testrun">
         <b>Last test run</b>
-        <pre>15 passed, 0 failed
-StackMath ......... 7
-AdPolicy .......... 4
-GameStateMachine .. 2
-Purchases ......... 2</pre>
-        <small>Core compiles and runs outside Unity too, so tests can run in CI on every commit.</small>
+        <pre>C#  21 passed, 0 failed
+  StackMath ......... 7
+  Simulation ........ 6
+  AdPolicy .......... 4
+  GameStateMachine .. 2
+  Purchases ......... 2
+JS  12 passed, 0 failed
+Parity hash ....... 0x733B8885</pre>
+        <small>The core has no UnityEngine dependency, so it compiles and runs in CI on every commit.</small>
       </div>
     </div>
     <div class="viewer"><div class="vhead" id="codename"></div><pre id="codebody">Loading…</pre></div>

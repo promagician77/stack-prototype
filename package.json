@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "node --test tests/core.test.mjs && bash unity/harness/run-tests.sh",
+    "test": "node --test tests/core.test.mjs tests/sim.test.mjs && bash unity/harness/run-tests.sh",
     "start": "npx --yes serve . -l 3000",
     "deploy": "npx --yes vercel --prod"
   }
