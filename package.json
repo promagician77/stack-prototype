@@ -1,0 +1,11 @@
+{
+  "name": "stack-drop-prototype",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test tests/core.test.mjs && bash unity/harness/run-tests.sh",
+    "start": "npx --yes serve . -l 3000",
+    "deploy": "npx --yes vercel --prod"
+  }
+}

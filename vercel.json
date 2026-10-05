@@ -1,0 +1,6 @@
+{
+  "headers": [
+    { "source": "/(.*)", "headers": [ { "key": "X-Robots-Tag", "value": "noindex, nofollow" } ] },
+    { "source": "/unity/(.*)", "headers": [ { "key": "Content-Type", "value": "text/plain; charset=utf-8" } ] }
+  ]
+}

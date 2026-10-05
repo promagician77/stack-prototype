@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="light">
+<meta name="robots" content="noindex, nofollow">
+<title>PROTOTYPE - Stack Drop, by Sebastian</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'><rect width='64' height='64' rx='14' fill='%23E8505B'/><rect x='14' y='40' width='36' height='10' rx='2' fill='white'/><rect x='18' y='27' width='30' height='10' rx='2' fill='white' opacity='.85'/><rect x='22' y='14' width='22' height='10' rx='2' fill='white' opacity='.7'/></svg>">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Rubik:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<header class="top">
+  <div class="brand"><span class="mark">PROTOTYPE</span><div><h1>Stack Drop</h1><p>Built for Devflow by Sebastian. Tap the game to play.</p></div></div>
+  <nav class="tabs" role="tablist">
+    <button role="tab" aria-selected="true" data-tab="play">Play</button>
+    <button role="tab" aria-selected="false" data-tab="built">How it's built</button>
+    <button role="tab" aria-selected="false" data-tab="code">Unity C#</button>
+    <button role="tab" aria-selected="false" data-tab="deliver">Milestones</button>
+  </nav>
+</header>
+
+<main>
+<!-- PLAY -->
+<section id="play" class="panel">
+  <div class="stage">
+    <div class="phone">
+      <div class="screen">
+        <canvas id="cv" aria-label="Stack Drop game. Tap or press Space to drop the block."></canvas>
+
+        <div class="ov" id="menu" hidden>
+          <div class="card">
+            <h2>Stack Drop</h2>
+            <p>Tap to drop the block. Land it dead-on for a perfect, three perfects in a row grows it back.</p>
+            <button class="btn big" id="startbtn">Play</button>
+            <small>Best: <b id="menubest">0</b></small>
+          </div>
+        </div>
+
+        <div class="ov" id="cont" hidden>
+          <div class="card">
+            <h2>So close</h2>
+            <p>Watch a short ad to keep this tower going?</p>
+            <button class="btn big" id="contyes">Watch ad and continue</button>
+            <button class="link" id="contno">No thanks</button>
+          </div>
+        </div>
+
+        <div class="ov dark" id="ad" hidden>
+          <div class="adbox">
+            <span class="adtag">Test ad</span>
+            <h2 id="adkind">Ad</h2>
+            <div class="adtimer" id="adtimer">5</div>
+            <p id="adnote"></p>
+            <button class="btn" id="adclose" hidden>Close ad</button>
+          </div>
+        </div>
+
+        <div class="ov" id="over" hidden>
+          <div class="card">
+            <h2>Tower: <span id="goscore">0</span></h2>
+            <p class="best">Best <b id="gobest">0</b></p>
+            <button class="btn big" id="againbtn">Play again</button>
+            <div id="buyrow"><button class="btn ghost" id="buyopen">Remove ads, $2.99</button></div>
+            <p id="ownedrow" class="owned" hidden>Ads removed. Thanks for your support.</p>
+            <button class="link" id="restore">Restore purchases</button>
+          </div>
+        </div>
+
+        <div class="ov dim" id="sheet" hidden>
+          <div class="sheet">
+            <div class="grab"></div>
+            <b>Remove ads</b>
+            <p>No more interstitial ads. Rewarded continues stay optional.</p>
+            <div class="price">$2.99</div>
+            <button class="btn big" id="buybtn">Buy</button>
+            <button class="link" id="sheetcancel">Cancel</button>
+            <small id="sheetmsg"></small>
+            <small class="test">Test store. No real payment.</small>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <aside class="dev" aria-label="Developer panel">
+      <h3>Live developer panel</h3>
+      <dl class="stats">
+        <div><dt>FPS</dt><dd id="d-fps">-</dd></div>
+        <div><dt>State</dt><dd id="d-state">-</dd></div>
+        <div><dt>Height</dt><dd id="d-height">0</dd></div>
+        <div><dt>Combo</dt><dd id="d-combo">0</dd></div>
+        <div><dt>Slice pool in use</dt><dd id="d-debris">-</dd></div>
+        <div><dt>Particle pool in use</dt><dd id="d-part">-</dd></div>
+        <div><dt>Games played</dt><dd id="d-games">0</dd></div>
+        <div><dt>Games since last ad</dt><dd id="d-since">-</dd></div>
+        <div><dt>Remove ads</dt><dd id="d-noads">-</dd></div>
+      </dl>
+      <p class="hint">Interstitials: never in the first game, never after a rewarded ad, then at most once every 4 games. Buttons on ad and store screens ignore taps for 0.7s, so a fast-tapping player never hits an ad by accident. Buy remove-ads, then try <button class="inline" id="reinstall">simulate a reinstall</button> and restore.</p>
+      <h3>Event log</h3>
+      <ol class="ev" id="ev"></ol>
+    </aside>
+  </div>
+</section>
+
+<!-- BUILT -->
+<section id="built" class="panel" hidden>
+  <div class="arch">
+    <svg viewBox="0 0 980 420" role="img" aria-label="Architecture: gameplay talks to service interfaces; ad networks and stores plug in behind them">
+      <g font-family="Rubik, sans-serif" font-size="14">
+        <rect x="20" y="30" width="200" height="64" rx="10" fill="#FFF0F1" stroke="#E8505B"/><text x="120" y="58" text-anchor="middle" font-weight="600" fill="#1E2430">StackController</text><text x="120" y="78" text-anchor="middle" fill="#5A6170" font-size="12">input, movement, events</text>
+        <rect x="20" y="130" width="200" height="64" rx="10" fill="#F1F7EE" stroke="#4E9A4F"/><text x="120" y="158" text-anchor="middle" font-weight="600" fill="#1E2430">StackMath</text><text x="120" y="178" text-anchor="middle" fill="#5A6170" font-size="12">pure C#, 7 tests</text>
+        <rect x="20" y="230" width="200" height="64" rx="10" fill="#F4F5F7" stroke="#9AA1AD"/><text x="120" y="258" text-anchor="middle" font-weight="600" fill="#1E2430">BlockPool</text><text x="120" y="278" text-anchor="middle" fill="#5A6170" font-size="12">no allocations per drop</text>
+        <rect x="390" y="130" width="200" height="64" rx="10" fill="#F1F7EE" stroke="#4E9A4F"/><text x="490" y="158" text-anchor="middle" font-weight="600" fill="#1E2430">GameStateMachine</text><text x="490" y="178" text-anchor="middle" fill="#5A6170" font-size="12">illegal jumps throw, 2 tests</text>
+        <rect x="390" y="270" width="200" height="64" rx="10" fill="#FFF0F1" stroke="#E8505B"/><text x="490" y="298" text-anchor="middle" font-weight="600" fill="#1E2430">MonetizationController</text><text x="490" y="318" text-anchor="middle" fill="#5A6170" font-size="12">the only file that knows ads</text>
+        <rect x="390" y="360" width="200" height="50" rx="10" fill="#F1F7EE" stroke="#4E9A4F"/><text x="490" y="390" text-anchor="middle" font-weight="600" fill="#1E2430">AdPolicy · 4 tests</text>
+        <rect x="740" y="210" width="220" height="64" rx="10" fill="#fff" stroke="#1E2430" stroke-dasharray="5 4"/><text x="850" y="238" text-anchor="middle" font-weight="600" fill="#1E2430">IAdsService</text><text x="850" y="258" text-anchor="middle" fill="#5A6170" font-size="12">Mock · LevelPlay · AdMob · MAX</text>
+        <rect x="740" y="310" width="220" height="64" rx="10" fill="#fff" stroke="#1E2430" stroke-dasharray="5 4"/><text x="850" y="338" text-anchor="middle" font-weight="600" fill="#1E2430">IPurchaseService</text><text x="850" y="358" text-anchor="middle" fill="#5A6170" font-size="12">Mock · Unity IAP · 2 tests</text>
+      </g>
+      <g stroke="#9AA1AD" stroke-width="1.6" fill="none">
+        <path d="M120 94 V130"/><path d="M120 194 V230"/><path d="M220 62 H300 V162 H390"/>
+        <path d="M490 194 V270"/><path d="M490 334 V360"/><path d="M590 302 H660 V242 H740"/><path d="M590 302 H660 V342 H740"/>
+      </g>
+    </svg>
+  </div>
+  <div class="points">
+    <div><b>Swap ad networks per client</b><p>Gameplay only talks to interfaces. A client on AdMob instead of LevelPlay gets a new adapter, not edits across the game.</p></div>
+    <div><b>Smooth on cheap Android</b><p>Slices and particles come from fixed pools, so a perfect drop never stutters because of garbage collection.</p></div>
+    <div><b>"Fewer ads, please"</b><p>Interstitial rules live in one tested class. Changing the frequency is one number, verified by the tests.</p></div>
+  </div>
+</section>
+
+<!-- CODE -->
+<section id="code" class="panel" hidden>
+  <div class="codewrap">
+    <div class="files" role="list">
+      <button role="listitem" aria-current="true" data-file="unity/Assets/Scripts/Core/StackMath.cs">StackMath.cs<small>slicing math</small></button>
+      <button role="listitem" data-file="unity/Assets/Scripts/Core/AdPolicy.cs">AdPolicy.cs<small>interstitial rules</small></button>
+      <button role="listitem" data-file="unity/Assets/Scripts/Core/Services.cs">Services.cs<small>ads + IAP interfaces</small></button>
+      <button role="listitem" data-file="unity/Assets/Scripts/Core/GameStateMachine.cs">GameStateMachine.cs<small>game flow</small></button>
+      <button role="listitem" data-file="unity/Assets/Scripts/Game/StackController.cs">StackController.cs<small>MonoBehaviour</small></button>
+      <button role="listitem" data-file="unity/Assets/Scripts/Game/BlockPool.cs">BlockPool.cs<small>UnityEngine.Pool</small></button>
+      <button role="listitem" data-file="unity/Assets/Scripts/Game/MonetizationController.cs">MonetizationController.cs<small>ads + purchases</small></button>
+      <button role="listitem" data-file="unity/Assets/Tests/EditMode/AdPolicyTests.cs">AdPolicyTests.cs<small>NUnit, EditMode</small></button>
+      <div class="testrun">
+        <b>Last test run</b>
+        <pre>15 passed, 0 failed
+StackMath ......... 7
+AdPolicy .......... 4
+GameStateMachine .. 2
+Purchases ......... 2</pre>
+        <small>Core compiles and runs outside Unity too, so tests can run in CI on every commit.</small>
+      </div>
+    </div>
+    <div class="viewer"><div class="vhead" id="codename"></div><pre id="codebody">Loading…</pre></div>
+  </div>
+</section>
+
+<!-- MILESTONES -->
+<section id="deliver" class="panel" hidden>
+  <div class="ms">
+    <div><span>5 days</span><b>Prototype</b><p>Core mechanic playable on a real phone, game feel tuned.</p><em>$500</em></div>
+    <div><span>3 days</span><b>Monetization</b><p>Rewarded, interstitial with frequency cap, remove-ads with restore.</p><em>$300</em></div>
+    <div><span>2 days</span><b>Store release</b><p>Both store submissions and any review fixes.</p><em>$200</em></div>
+  </div>
+  <div class="two">
+    <div>
+      <h3>Every milestone, you get</h3>
+      <ul class="ticks">
+        <li>A playable link you can send your client the same day</li>
+        <li>An Android test build and a TestFlight build</li>
+        <li>Source pushed to your repo with a short changelog</li>
+        <li>A fixed price agreed before work starts</li>
+      </ul>
+    </div>
+    <div>
+      <h3>Store traps I plan into your quotes</h3>
+      <ul class="warn">
+        <li><b>Google Play, new personal accounts:</b> a closed test with 12 testers for 14 straight days before launch. Organization accounts skip it.</li>
+        <li><b>iOS ads:</b> the tracking permission prompt before personalized ads, and privacy details for every ad SDK.</li>
+        <li><b>Europe and UK:</b> a consent message before AdMob serves ads.</li>
+      </ul>
+    </div>
+  </div>
+</section>
+</main>
+<script type="module" src="/src/app.js"></script>
+</body>
+</html>
